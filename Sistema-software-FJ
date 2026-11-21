@@ -1,0 +1,242 @@
+excepciones.py
+# Módulo de excepciones personalizadas para el sistema Software FJ
+# Permite manejar de forma controlada los errores específicos del negocio.
+
+class SoftwareFJError(Exception):
+    """Excepción base para todos los errores controlados de Software FJ."""
+    pass
+
+class ClienteInvalidoError(SoftwareFJError):
+    """Excepción lanzada cuando los datos del cliente violan las validaciones."""
+    pass
+
+class ServicioNoDisponibleError(SoftwareFJError):
+    """Excepción lanzada cuando se intenta operar con un servicio inexistente o inactivo."""
+    pass
+
+class ReservaInvalidaError(SoftwareFJError):
+    """Excepción lanzada ante parámetros incorrectos o fallos en las reservas."""
+    pass
+logger.py
+import datetime
+
+def registrar_log(mensaje, tipo="INFO"):
+    """
+    Registra eventos y errores detallados en un archivo de texto 'software_fj.log',
+    incluyendo la fecha y hora exacta del suceso sin detener la aplicación.
+    """
+    try:
+        # Apertura del archivo de logs en modo adjuntar (append) con codificación UTF-8
+        with open("software_fj.log", "a", encoding="utf-8") as archivo_log:
+            tiempo_actual = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            archivo_log.write(f"[{tiempo_actual}] [{tipo}] {mensaje}\n")
+    except Exception as error_escritura:
+        print(f"Error crítico al intentar escribir en el archivo de logs: {error_escritura}")
+modelos.py
+from abc import ABC, abstractmethod
+from excepciones import ClienteInvalidoError, ReservaInvalidaError
+
+# Clase abstracta general que representa cualquier entidad principal del sistema
+class EntidadSistema(ABC):
+    def __init__(self, id_entidad):
+        self._id_entidad = id_entidad
+
+    @abstractmethod
+    def obtener_detalles(self):
+        """Método abstracto que deben implementar obligatoriamente las clases hijas."""
+        pass
+
+
+# Clase Cliente con encapsulación estricta y validaciones en propiedades
+class Cliente(EntidadSistema):
+    def __init__(self, id_entidad, nombre, email, telefono):
+        super().__init__(id_entidad)
+        self.nombre = nombre
+        self.email = email  # Utiliza el setter validado
+        self.telefono = telefono
+
+    @property
+    def email(self):
+        """Devuelve de forma segura el correo electrónico del cliente."""
+        return self._email
+
+    @email.setter
+    def email(self, valor):
+        """Valida estrictamente que el correo contenga '@' y '.' antes de asignarlo."""
+        if not valor or "@" not in valor or "." not in valor:
+            raise ClienteInvalidoError(f"El correo electrónico ingresado es inválido: '{valor}'.")
+        self._email = valor
+
+    def obtener_detalles(self):
+        return f"Cliente ID: {self._id_entidad} | Nombre: {self.nombre} | Email: {self._email}"
+
+
+# Clase abstracta Servicio que establece la base para los servicios de Software FJ
+class Servicio(EntidadSistema):
+    def __init__(self, id_entidad, nombre_servicio, costo_base):
+        super().__init__(id_entidad)
+        self.nombre_servicio = nombre_servicio
+        self.costo_base = costo_base
+
+    @abstractmethod
+    def calcular_costo(self, *args, **kwargs):
+        """Método abstracto polimórfico para calcular tarifas según el servicio."""
+        pass
+
+    @abstractmethod
+    def describir_servicio(self):
+        """Método abstracto para detallar las características del servicio."""
+        pass
+
+
+# Servicio Especializado 1: Reserva de Salas (Aplica polimorfismo y sobrecarga de métodos)
+class ReservaSala(Servicio):
+    def __init__(self, id_entidad, nombre_servicio, costo_base, capacidad):
+        super().__init__(id_entidad, nombre_servicio, costo_base)
+        self.capacidad = capacidad
+
+    # Método sobrecargado: acepta horas, descuentos opcionales e impuestos parametrizados
+    def calcular_costo(self, horas=1, descuento=0.0, impuesto=0.19):
+        try:
+            if horas <= 0:
+                raise ReservaInvalidaError("El número de horas reservadas debe ser mayor a cero.")
+            
+            subtotal = (self.costo_base * horas) - descuento
+            total_final = subtotal + (subtotal * impuesto)
+            return max(0.0, total_final)
+        except Exception as e:
+            # Encadenamiento de excepciones exigido por la guía de actividades
+            raise ReservaInvalidaError(f"Fallo en el cálculo de costos de sala: {e}") from e
+
+    def describir_servicio(self):
+        return f"[Sala] {self.nombre_servicio} - Capacidad: {self.capacidad} personas"
+
+
+# Servicio Especializado 2: Alquiler de Equipos
+class AlquilerEquipo(Servicio):
+    def __init__(self, id_entidad, nombre_servicio, costo_base, marca):
+        super().__init__(id_entidad, nombre_servicio, costo_base)
+        self.marca = marca
+
+    def calcular_costo(self, dias=1, seguro_adicional=0.0):
+        if dias <= 0:
+            raise ReservaInvalidaError("Los días de alquiler no pueden ser negativos o cero.")
+        return (self.costo_base * dias) + seguro_adicional
+
+    def describir_servicio(self):
+        return f"[Equipo] {self.nombre_servicio} - Marca: {self.marca}"
+
+
+# Servicio Especializado 3: Asesorías Especializadas
+class AsesoriaEspecializada(Servicio):
+    def __init__(self, id_entidad, nombre_servicio, costo_base, area_especialidad):
+        super().__init__(id_entidad, nombre_servicio, costo_base)
+        self.area_especialidad = area_especialidad
+
+    def calcular_costo(self, numero_sesiones=1):
+        if numero_sesiones <= 0:
+            raise ReservaInvalidaError("El número de sesiones de asesoría debe ser mayor a cero.")
+        return self.costo_base * numero_sesiones
+
+    def describir_servicio(self):
+        return f"[Asesoría] {self.nombre_servicio} - Área: {self.area_especialidad}"
+
+
+# Clase Reserva que integra cliente, servicio y gestión de estados
+class Reserva:
+    def __init__(self, id_reserva, cliente, servicio, duracion):
+        self.id_reserva = id_reserva
+        self.cliente = cliente
+        self.servicio = servicio
+        self.duracion = duracion
+        self.estado = "Pendiente"
+
+    def confirmar_reserva(self):
+        self.estado = "Confirmada"
+        return "Reserva confirmada con éxito."
+
+    def cancelar_reserva(self):
+        self.estado = "Cancelada"
+        return "La reserva ha sido cancelada."
+main.py
+# Módulo principal de ejecución que simula las 10 operaciones obligatorias (válidas e inválidas)
+from modelos import Cliente, ReservaSala, AlquilerEquipo, AsesoriaEspecializada, Reserva
+from excepciones import SoftwareFJError
+from logger import registrar_log
+
+def ejecutar_simulacion_sistema():
+    print("=======================================================")
+    print("      INICIO DE SIMULACIÓN - SOFTWARE FJ (FASE 4)      ")
+    print("=======================================================\n")
+
+    # Lista con 10 funciones anónimas que representan las 10 operaciones requeridas
+    operaciones_simulacion = [
+        # Op 1: Registro válido de un cliente
+        lambda: Cliente("C-101", "María Rodríguez", "maria.rodriguez@unad.edu.co", "3104567890"),
+        
+        # Op 2: Registro inválido de cliente (Provocará excepción controlada por correo incorrecto)
+        lambda: Cliente("C-102", "Pedro Infante", "correo-sin-arroba.com", "3201234567"),
+        
+        # Op 3: Creación correcta de un servicio de reserva de sala
+        lambda: ReservaSala("S-201", "Auditorio Principal", 60000, 30),
+        
+        # Op 4: Cálculo de costos con parámetros opcionales y descuentos (Método sobrecargado)
+        lambda: ReservaSala("S-201", "Auditorio Principal", 60000, 30).calcular_costo(horas=4, descuento=15000),
+        
+        # Op 5: Creación correcta de alquiler de equipos tecnológicos
+        lambda: AlquilerEquipo("E-301", "Kit de Realidad Virtual", 45000, "Oculus"),
+        
+        # Op 6: Cálculo de costo de equipo incluyendo un seguro opcional
+        lambda: AlquilerEquipo("E-301", "Kit de Realidad Virtual", 45000, "Oculus").calcular_costo(dias=3, seguro_adicional=20000),
+        
+        # Op 7: Creación correcta de asesoría especializada en arquitectura de software
+        lambda: AsesoriaEspecializada("A-401", "Mentoría POO Avanzada", 90000, "Desarrollo de Software"),
+        
+        # Op 8: Intento de reserva incorrecto (Horas negativas para probar la robustez y bloques try/except)
+        lambda: ReservaSala("S-202", "Sala de Juntas", 30000, 8).calcular_costo(horas=-5),
+        
+        # Op 9: Creación y confirmación exitosa de una reserva completa
+        lambda: Reserva("R-501", 
+                        Cliente("C-103", "Laura Gómez", "laura@gmail.com", "3159998877"), 
+                        AlquilerEquipo("E-302", "Proyector Láser", 25000, "Epson"), 
+                        duracion=2).confirmar_reserva(),
+        
+        # Op 10: Operación fallida simulada por datos nulos o inconsistentes en la creación de servicios
+        lambda: AsesoriaEspecializada(None, None, -500, None).calcular_costo(0)
+    ]
+
+    # Bucle secuencial para evaluar cada operación utilizando la estructura completa de excepciones
+    for indice, operacion in enumerate(operaciones_simulacion, start=1):
+        print(f"-------------------------------------------------------")
+        print(f" Ejecutando Operación #{indice} de 10...")
+        
+        try:
+            # Intento de ejecución de la operación lógica
+            resultado = operacion()
+            
+        except SoftwareFJError as error_negocio:
+            # Manejo estructurado de excepciones de negocio personalizadas
+            print(f" -> [CONTROLADO] Error de negocio detectado: {error_negocio}")
+            registrar_log(f"Operación #{indice} falló por regla de negocio: {error_negocio}", "ERROR")
+            
+        except Exception as error_inesperado:
+            # Manejo genérico para capturar cualquier otra falla imprevista
+            print(f" -> [CRÍTICO] Error inesperado en el sistema: {error_inesperado}")
+            registrar_log(f"Operación #{indice} falló por error crítico: {error_inesperado}", "FATAL")
+            
+        else:
+            # Bloque else: Se ejecuta únicamente si todo transcurre sin errores
+            print(f" -> [ÉXITO] Operación procesada correctamente. Resultado: {resultado}")
+            registrar_log(f"Operación #{indice} ejecutada de forma exitosa.", "INFO")
+            
+        finally:
+            # Bloque finally: Se ejecuta siempre, garantizando la estabilidad continua de la aplicación
+            print(f" -> [FINALLY] Estado del sistema: Estable y activo tras la operación #{indice}.")
+
+    print("\n=======================================================")
+    print("      SIMULACIÓN FINALIZADA CON ÉXITO Y SIN CAÍDAS     ")
+    print("=======================================================")
+
+if __name__ == "__main__":
+    ejecutar_simulacion_sistema()
+q
